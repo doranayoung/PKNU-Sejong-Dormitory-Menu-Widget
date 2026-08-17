@@ -1,0 +1,277 @@
+// Variables used by Scriptable.
+// icon-color: orange; icon-glyph: utensils;
+
+/**
+ * PKNU(국립부경대학교) 학생생활관 세종관 식단 위젯 — 2026 재작성판
+ * -------------------------------------------------------------
+ * 출처: https://dormitory.pknu.ac.kr/03_notice/notice01.php (오늘의 식단, 세종관)
+ *
+ * 이 사이트는 정적 HTML에 식단이 바로 들어있지 않고, 페이지 로드 시
+ * jQuery로 아래 엔드포인트에 AJAX POST 요청을 보내 실제 식단표를 받아온 뒤
+ * 화면에 채워 넣는 구조다 (기존 스크립트가 정적 HTML만 긁어서 실패했던 이유).
+ *
+ *   POST https://dormitory.pknu.ac.kr/03_notice/req_getSchedule.php
+ *   body: vt=<유닉스 타임스탬프(초)>&bid=foodE
+ *
+ * vt는 "그 주에 속하는 아무 시각"이면 되고, 서버가 해당 시각이 속한
+ * 일(SUN)~토(SAT) 한 주 식단표를 돌려준다. 응답 HTML의 <th>에는
+ * "월(5/11)" 처럼 "요일(M/D)" 형식(0 채움 없음)으로 날짜가 들어있고,
+ * <tbody>에는 아침/점심/저녁 3개 행 × (라벨 + 7일) 열이 들어있다.
+ * 각 끼니 칸의 메뉴는 <br /> 로 줄바꿈되어 있으며, 미운영/공백일 경우
+ * 칸이 완전히 비어있다 (방학 등으로 그 주 전체가 비어있는 경우도 흔함).
+ *
+ * 실제 서버 응답 예시로 위 구조를 확인했고(2026-08 방학 주 = 전부 공백,
+ * 2026-05 학기 중 주 = 실제 메뉴 확인), 그 구조를 기준으로 파싱한다.
+ */
+
+const AJAX_URL = "https://dormitory.pknu.ac.kr/03_notice/req_getSchedule.php";
+const REFERER_URL = "https://dormitory.pknu.ac.kr/03_notice/notice01.php";
+// 위젯 파라미터로 다른 bid를 넘기면(예: 다른 캠퍼스 식당) 그걸 쓰고, 없으면 세종관(foodE) 기본값 사용
+const BID = (typeof args !== "undefined" && args.widgetParameter) ? args.widgetParameter : "foodE";
+
+// ---------------------------------------------------------------
+// 유틸: 한국시간(KST) 기준 오늘 날짜
+// ---------------------------------------------------------------
+function getKSTToday() {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  });
+  const parts = {};
+  for (const p of fmt.formatToParts(new Date())) {
+    parts[p.type] = p.value;
+  }
+  return {
+    year: parseInt(parts.year, 10),
+    month: parseInt(parts.month, 10),
+    day: parseInt(parts.day, 10)
+  };
+}
+
+// ---------------------------------------------------------------
+// AJAX 호출
+// ---------------------------------------------------------------
+async function fetchScheduleHTML(vt) {
+  const req = new Request(AJAX_URL);
+  req.method = "POST";
+  req.headers = {
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "Referer": REFERER_URL,
+    "X-Requested-With": "XMLHttpRequest"
+  };
+  req.body = `vt=${vt}&bid=${BID}`;
+  const html = await req.loadString();
+  // HTML 주석 제거 (응답에 <!-- <td>...</td> --> 형태의 죽은 코드가 섞여 있어
+  // 그대로 두면 셀 개수가 밀리는 파싱 오류가 생긴다)
+  return html.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+// ---------------------------------------------------------------
+// 파싱: 헤더의 요일(M/D) 7개 추출 (일~토 순서)
+// ---------------------------------------------------------------
+function parseHeaderDates(html) {
+  const regex = /<th[^>]*>\s*(일|월|화|수|목|금|토)\s*\((\d{1,2})\/(\d{1,2})\)\s*<\/th>/g;
+  const dates = [];
+  let m;
+  while ((m = regex.exec(html)) !== null) {
+    dates.push({ weekday: m[1], month: parseInt(m[2], 10), day: parseInt(m[3], 10) });
+  }
+  return dates;
+}
+
+// ---------------------------------------------------------------
+// 파싱: tbody 안 3개 행(아침/점심/저녁), 각 행은 [라벨, 일,월,화,수,목,금,토] 8칸
+// ---------------------------------------------------------------
+function parseMealRows(html) {
+  const tbodyMatch = html.match(/<tbody>([\s\S]*?)<\/tbody>/);
+  if (!tbodyMatch) return null;
+
+  const rowRegex = /<tr>([\s\S]*?)<\/tr>/g;
+  const rows = [];
+  let rm;
+  while ((rm = rowRegex.exec(tbodyMatch[1])) !== null) {
+    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
+    const cells = [];
+    let tm;
+    while ((tm = tdRegex.exec(rm[1])) !== null) {
+      cells.push(tm[1]);
+    }
+    rows.push(cells);
+  }
+  return rows; // [아침행, 점심행, 저녁행], 각 행 길이 8 (라벨 포함)
+}
+
+// ---------------------------------------------------------------
+// 칸 하나(raw HTML)를 "한 줄 메뉴"로 정리
+// ---------------------------------------------------------------
+function cleanCell(raw) {
+  if (!raw) return "";
+  const text = raw
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ");
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim().replace(/^\*+|\*+$/g, "").trim())
+    .filter((l) => l.length > 0);
+  return lines.join(" · ");
+}
+
+// ---------------------------------------------------------------
+// 오늘 메뉴 가져오기 (이번 주 응답에 오늘 날짜가 없으면 이전/다음 주로 재시도)
+// ---------------------------------------------------------------
+async function getTodayMenu() {
+  const today = getKSTToday();
+  const nowVt = Math.floor(Date.now() / 1000);
+
+  let html = await fetchScheduleHTML(nowVt);
+  let dates = parseHeaderDates(html);
+  let idx = dates.findIndex((d) => d.month === today.month && d.day === today.day);
+
+  // 오늘 날짜가 이번 주 응답 헤더에 아예 없는 경우(주 경계 오차 등)에만
+  // 응답에 포함된 "이전주/다음주" 버튼의 정확한 타임스탬프로 재요청
+  if (idx === -1) {
+    const navRegex = /Method\.loadSchedule\('(\d+)'\s*,\s*'[^']*'\)/g;
+    const navVts = [];
+    let nm;
+    while ((nm = navRegex.exec(html)) !== null) navVts.push(nm[1]);
+
+    for (const vt of navVts) {
+      html = await fetchScheduleHTML(vt);
+      dates = parseHeaderDates(html);
+      idx = dates.findIndex((d) => d.month === today.month && d.day === today.day);
+      if (idx !== -1) break;
+    }
+  }
+
+  const rows = parseMealRows(html);
+  if (idx === -1 || !rows || rows.length < 3) {
+    return {
+      found: false,
+      dateLabel: `${today.month}/${today.day}`,
+      breakfast: "제공 없음",
+      lunch: "제공 없음",
+      dinner: "제공 없음"
+    };
+  }
+
+  const getMeal = (row) => {
+    const cell = row && row[idx + 1]; // 0번은 라벨(아침/점심/저녁)
+    const cleaned = cleanCell(cell);
+    return cleaned.length > 0 ? cleaned : "제공 없음";
+  };
+
+  return {
+    found: true,
+    dateLabel: `${today.month}/${today.day}`,
+    breakfast: getMeal(rows[0]),
+    lunch: getMeal(rows[1]),
+    dinner: getMeal(rows[2])
+  };
+}
+
+// ---------------------------------------------------------------
+// 위젯 UI
+// ---------------------------------------------------------------
+async function createWidget(menu) {
+  const w = new ListWidget();
+  w.backgroundColor = new Color("#1c1c1e");
+  w.setPadding(14, 14, 14, 14);
+
+  const titleStack = w.addStack();
+  titleStack.centerAlignContent();
+  const title = titleStack.addText("🍽 세종관 오늘의 식단");
+  title.font = Font.boldSystemFont(14);
+  title.textColor = Color.white();
+  titleStack.addSpacer();
+  const dateText = titleStack.addText(menu.dateLabel);
+  dateText.font = Font.mediumSystemFont(12);
+  dateText.textColor = new Color("#8e8e93");
+
+  w.addSpacer(10);
+
+  const meals = [
+    { label: "조식", value: menu.breakfast, color: "#ffd166" },
+    { label: "중식", value: menu.lunch, color: "#06d6a0" },
+    { label: "석식", value: menu.dinner, color: "#ef476f" }
+  ];
+
+  meals.forEach((meal, i) => {
+    const row = w.addStack();
+    row.layoutHorizontally();
+    row.topAlignContent();
+
+    const badge = row.addText(meal.label);
+    badge.font = Font.boldSystemFont(12);
+    badge.textColor = new Color(meal.color);
+    badge.leftAlignText();
+
+    row.addSpacer(8);
+
+    const valueStack = row.addStack();
+    valueStack.layoutVertically();
+    const valueText = valueStack.addText(meal.value);
+    valueText.font = Font.systemFont(11);
+    valueText.textColor = Color.white();
+    valueText.lineLimit = 3;
+    valueText.minimumScaleFactor = 0.7;
+
+    if (i < meals.length - 1) w.addSpacer(8);
+  });
+
+  w.addSpacer();
+  const footer = w.addText(
+    menu.found ? "dormitory.pknu.ac.kr" : "이번 주 식단 정보 없음 (방학/미운영 가능)"
+  );
+  footer.font = Font.systemFont(9);
+  footer.textColor = new Color("#636366");
+
+  // 1시간 뒤 다시 갱신 시도 (끼니 시간대에 맞춰 자연스럽게 갱신되도록)
+  w.refreshAfterDate = new Date(Date.now() + 60 * 60 * 1000);
+
+  return w;
+}
+
+// ---------------------------------------------------------------
+// 에러 위젯
+// ---------------------------------------------------------------
+function createErrorWidget(error) {
+  const w = new ListWidget();
+  w.backgroundColor = new Color("#1c1c1e");
+  w.setPadding(14, 14, 14, 14);
+  const t = w.addText("⚠️ 식단을 불러오지 못했어요");
+  t.font = Font.boldSystemFont(13);
+  t.textColor = Color.white();
+  w.addSpacer(6);
+  const d = w.addText(String(error && error.message ? error.message : error));
+  d.font = Font.systemFont(10);
+  d.textColor = new Color("#8e8e93");
+  d.lineLimit = 4;
+  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
+  return w;
+}
+
+// ---------------------------------------------------------------
+// 실행
+// ---------------------------------------------------------------
+async function run() {
+  let widget;
+  try {
+    const menu = await getTodayMenu();
+    widget = await createWidget(menu);
+  } catch (e) {
+    widget = createErrorWidget(e);
+  }
+
+  if (config.runsInWidget) {
+    Script.setWidget(widget);
+  } else {
+    // 앱에서 직접 실행했을 때 미리보기
+    await widget.presentMedium();
+  }
+  Script.complete();
+}
+
+await run();
