@@ -1,81 +1,69 @@
-<div align="center" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;">
-  <h1 style="margin:0.4rem 0;">PKNU 세종기숙사 식단 위젯</h1>
-  <p style="margin:0.2rem 0;font-size:0.95rem;color:#555;">
-    iOS Scriptable 기반 자동 식단 파싱 위젯
-  </p>
-  <p style="margin:0.6rem 0;">
-    <span style="display:inline-block;background:#111;color:#fff;border-radius:8px;padding:4px 10px;font-size:12px;">Scriptable</span>
-    <span style="display:inline-block;background:#eef2ff;color:#3730a3;border-radius:8px;padding:4px 10px;font-size:12px;">세종 식당 전용 (BID=foodE)</span>
-    <span style="display:inline-block;background:#f1f5f9;color:#0f172a;border-radius:8px;padding:4px 10px;font-size:12px;">dormitory.pknu.ac.kr 기반</span>
-  </p>
-  <hr style="border:none;height:1px;background:#e5e7eb;margin:14px 0;width:92%;">
-</div>
+# PKNU 세종기숙사 식단 위젯
+ 
+iOS Scriptable 기반 자동 식단 파싱 위젯
+Scriptable 세종기숙사 전용 (`bid=foodE`) · `dormitory.pknu.ac.kr` 기반
+ 
+## 📌 개요
+ 
+국립부경대학교(PKNU) 학생생활관 세종기숙사 식단을 Scriptable 위젯으로 홈 화면에서 바로 확인할 수 있는 프로젝트입니다.
+사이트가 정적 HTML이 아니라 AJAX로 식단을 불러오는 구조라, 실제 서버 요청/응답을 분석해서 그 구조에 맞게 파싱합니다.
+ 
+## ✨ 주요 기능
+ 
+- 오늘(한국시간 기준) 날짜에 맞는 조식·중식·석식을 자동으로 찾아서 표시
+- 사이트의 AJAX 엔드포인트(`req_getSchedule.php`)를 직접 호출해서 실시간 식단표를 가져옴
+- 응답에 섞여 있는 죽은 HTML 주석(`<!-- <td>...</td> -->`)을 제거해 셀 파싱이 밀리지 않도록 처리
+- 빈 칸(주말/방학/미운영)은 "제공 없음"으로 일괄 처리
+- 혹시 이번 주 응답에 오늘 날짜가 아예 없는 경우(주 경계 오차 등)에는 응답에 포함된 이전주/다음주 버튼의 타임스탬프로 자동 재요청
+- Scriptable 위젯 UI로 iOS 홈화면에서 즉시 확인 가능
+## 🧠 동작 방식 (실제 서버 응답 분석 기준)
+ 
+`03_notice/notice01.php` 페이지 자체의 HTML에는 식단이 들어있지 않습니다. 페이지가 열리면 자바스크립트가 아래 엔드포인트로 AJAX 요청을 보내서 실제 식단표 HTML을 받아온 뒤 화면에 채워 넣는 구조입니다.
+ 
+```
+POST https://dormitory.pknu.ac.kr/03_notice/req_getSchedule.php
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+ 
+vt=<유닉스 타임스탬프(초)>&bid=foodE
+```
+ 
+- `vt`는 "그 주(일~토)에 속하는 아무 시각"이면 됩니다. 지금(now)의 타임스탬프를 넣으면 이번 주 식단표가 옵니다.
+- `bid`는 식당 구분값이며, 세종관은 `foodE` 고정입니다.
+응답 HTML 구조:
+ 
+- `<thead>`의 `<th>`에는 `요일(M/D)` 형식(0 채움 없음, 예: `월(5/11)`)으로 날짜가 들어있습니다. 실제로 확인한 형식은 이 한 가지뿐이었습니다.
+- `<tbody>`에는 아침/점심/저녁 3개 행이 있고, 각 행은 `라벨(아침 등) + 일~토 7칸` = 8개의 `<td>`로 구성됩니다.
+- 각 끼니 칸의 메뉴는 `<br />`로 줄바꿈되어 나열되며, 메뉴가 없으면(주말/방학/미운영) 칸이 완전히 비어 있습니다.
+- 점심 행 앞에는 `<!-- <td class="wh">점심</td> -->` 같은 죽은 주석이 섞여 있어서, 주석을 먼저 제거하지 않고 파싱하면 셀 인덱스가 하나씩 밀리는 버그가 생깁니다.
+파싱 흐름:
+ 
+1. 오늘(KST) 날짜 계산
+2. 지금 시각을 `vt`로 AJAX 요청 → 응답에서 HTML 주석 제거
+3. `<th>` 7개에서 날짜를 파싱해 오늘 날짜와 일치하는 열 인덱스를 찾음
+4. 못 찾으면(드문 경우) 응답에 포함된 이전주/다음주 버튼의 정확한 타임스탬프로 재요청
+5. 아침/점심/저녁 행에서 해당 열의 셀을 꺼내 `<br />` 기준으로 정리(별표 `*` 제거, 줄바꿈 → 구분자로 합침)해서 위젯에 렌더링
+## 📱 사용 방법
+ 
+1. iOS 앱스토어에서 Scriptable 설치
+2. 이 레포지토리의 `PKNU_세종기숙사_식단위젯.js` 코드 복사
+3. Scriptable에 새 스크립트 생성 → 붙여넣기
+4. 홈 화면에 Scriptable 위젯 추가 후 스크립트 연결
+ 
+## ⚙️ 대상 식당
+ 
+| 항목 | 값 |
+|---|---|
+| 캠퍼스 | 세종(대연캠퍼스) |
+| bid | foodE |
+| 출처 | https://dormitory.pknu.ac.kr/03_notice/notice01.php |
+| AJAX 엔드포인트 | https://dormitory.pknu.ac.kr/03_notice/req_getSchedule.php |
+ 
+## ⚠️ 참고
+ 
+- GitHub는 JavaScript 실행을 지원하지 않음 (위젯은 Scriptable에서만 동작)
+- 학교 홈페이지가 AJAX 응답 구조(태그명, 클래스명 등)를 바꾸면 파싱 로직 업데이트 필요
+- 서버가 Referer/X-Requested-With 헤더를 더 엄격하게 검사하도록 바뀌면 요청이 막힐 수 있음 — 그 경우 헤더 값을 실제 브라우저 요청과 비교해서 맞춰줘야 함
 
-<div style="max-width:860px;margin:0 auto;line-height:1.65;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;color:#0f172a;">
-
-  <h2>📌 개요</h2>
-  <p>
-    PKNU(부경대학교) 세종캠퍼스 기숙사 식단을 <strong>Scriptable 위젯</strong>으로
-    홈 화면에서 바로 확인할 수 있는 프로젝트입니다.
-    주차별 AJAX 호출까지 자동 처리하여, 공지 페이지에 오늘 날짜가 없더라도
-    백업 소스에서 식단을 복구해줍니다.
-  </p>
-
-  <h2>✨ 주요 기능</h2>
-  <ul>
-    <li><strong>오늘 날짜 자동 탐지</strong> (다양한 형식 대응: 10/27, 10.27, 10-27, 10월27일 ...)</li>
-    <li><strong>현재 주차에 미표기 시 AJAX 재요청</strong> → 백업 파싱</li>
-    <li>조식·중식·석식을 <strong>한 줄 메뉴</strong>로 깔끔 정리</li>
-    <li>빈 셀/주말/미운영은 <code>제공 없음</code>으로 일괄 처리</li>
-    <li>Scriptable 위젯 UI로 iOS 홈화면에서 즉시 확인 가능</li>
-  </ul>
-
-  <h2>🧠 동작 방식</h2>
-  <ol>
-    <li>공지 페이지 HTML을 읽어와 오늘 날짜가 포함된 열을 탐색</li>
-    <li>tbody에서 조식·중식·석식 행만 추출 후 태그 제거 및 1줄 정제</li>
-    <li>없거나 비어 있을 경우 AJAX 페이지에서 다른 주차를 순차 탐색</li>
-    <li>최종적으로 위젯에 식단 렌더링</li>
-  </ol>
-
-  <h2>📱 사용 방법</h2>
-  <ol>
-    <li>iOS 앱스토어에서 <strong>Scriptable</strong> 설치</li>
-    <li>이 레포지토리의 스크립트 코드 복사</li>
-    <li>Scriptable에 새 스크립트 생성 → 붙여넣기</li>
-    <li>홈 화면에 Scriptable 위젯 추가 후 스크립트 연결</li>
-  </ol>
-
-  <h2>⚙️ 대상 식당</h2>
-  <table style="border-collapse:collapse;width:100%;font-size:0.95rem;">
-    <thead>
-      <tr>
-        <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:6px 8px;">항목</th>
-        <th style="text-align:left;border-bottom:1px solid #e5e7eb;padding:6px 8px;">값</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;">캠퍼스</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;">세종</td>
-      </tr>
-      <tr>
-        <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;">bid</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;"><code>foodE</code></td>
-      </tr>
-      <tr>
-        <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;">출처</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;">https://dormitory.pknu.ac.kr</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <h2>⚠️ 참고</h2>
-  <ul>
-    <li>GitHub는 JavaScript 실행을 지원하지 않음 (위젯은 Scriptable에서만 동작)</li>
-    <li>학교 홈페이지 마크업 변경 시 파싱 로직 업데이트 필요</li>
-  </ul>
-
-  <h2>🧾 제작</h2>
-  <p>ChatGPT × Doranayoung × Gemini</p>
-</div>
+## 🧾 제작
+ 
+Doranayoung
