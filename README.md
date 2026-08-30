@@ -2,6 +2,9 @@
  
 iOS Scriptable 기반 자동 식단 파싱 위젯
 Scriptable 세종기숙사 전용 (`bid=foodE`) · `dormitory.pknu.ac.kr` 기반
+
+<img width="1920" height="1080" alt="Red and Green Retro Fun Creative Brief Presentation" src="https://github.com/user-attachments/assets/5f65c0c6-9a29-4101-b1e6-ed86cda6a029" />
+
  
 ## 📌 개요
  
