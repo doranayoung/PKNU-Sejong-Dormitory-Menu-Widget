@@ -45,15 +45,16 @@ vt=<유닉스 타임스탬프(초)>&bid=foodE
 ## 📱 사용 방법
  
 1. iOS 앱스토어에서 Scriptable 설치
-2. 이 레포지토리의 `PKNU_세종기숙사_식단위젯.js` 코드 복사
+2. 이 레포지토리의 `script` 코드 복사
 3. Scriptable에 새 스크립트 생성 → 붙여넣기
 4. 홈 화면에 Scriptable 위젯 추가 후 스크립트 연결
+> ✅ 2026-08-30 기준 실제 iOS 기기 + Scriptable 위젯에서 정상 동작 확인 완료. 오늘 날짜에 맞는 조식·중식·석식이 잘 표시됩니다. 방학 등으로 그 주 식단표 자체가 비어 있는 경우엔 "제공 없음"으로 뜨는 게 정상 동작입니다.
  
 ## ⚙️ 대상 식당
  
 | 항목 | 값 |
 |---|---|
-| 캠퍼스 | 세종(대연캠퍼스) |
+| 캠퍼스 | 세종기숙사 1,2관 (대연캠퍼스) |
 | bid | foodE |
 | 출처 | https://dormitory.pknu.ac.kr/03_notice/notice01.php |
 | AJAX 엔드포인트 | https://dormitory.pknu.ac.kr/03_notice/req_getSchedule.php |
@@ -62,8 +63,8 @@ vt=<유닉스 타임스탬프(초)>&bid=foodE
  
 - GitHub는 JavaScript 실행을 지원하지 않음 (위젯은 Scriptable에서만 동작)
 - 학교 홈페이지가 AJAX 응답 구조(태그명, 클래스명 등)를 바꾸면 파싱 로직 업데이트 필요
-- 서버가 Referer/X-Requested-With 헤더를 더 엄격하게 검사하도록 바뀌면 요청이 막힐 수 있음 — 그 경우 헤더 값을 실제 브라우저 요청과 비교해서 맞춰줘야 함
-
+- 실기기 테스트 결과 Referer/X-Requested-With 헤더, 한글 인코딩 모두 문제 없이 정상 동작 확인됨 (별도 조치 불필요)
 ## 🧾 제작
  
 Doranayoung
+ 
